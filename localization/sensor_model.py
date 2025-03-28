@@ -1,20 +1,22 @@
 import numpy as np
 from scan_simulator_2d import PyScanSimulator2D
-# Try to change to just `from scan_simulator_2d import PyScanSimulator2D` 
-# if any error re: scan_simulator_2d occurs
+# # Try to change to just `from scan_simulator_2d import PyScanSimulator2D` 
+# # if any error re: scan_simulator_2d occurs
 
 from tf_transformations import euler_from_quaternion
 
 from nav_msgs.msg import OccupancyGrid
 
 import sys
-
+import matplotlib.pyplot as plt
 np.set_printoptions(threshold=sys.maxsize)
+import pickle
 
 
 class SensorModel:
 
     def __init__(self, node):
+    # def __init__(self):
         node.declare_parameter('map_topic', "default")
         node.declare_parameter('num_beams_per_particle', 1)
         node.declare_parameter('scan_theta_discretization', 1.0)
@@ -31,14 +33,20 @@ class SensorModel:
 
         ####################################
         # Adjust these parameters
-        self.alpha_hit = 0
-        self.alpha_short = 0
-        self.alpha_max = 0
-        self.alpha_rand = 0
-        self.sigma_hit = 0
-
+        self.alpha_hit = 0.74
+        self.alpha_short = 0.07
+        self.alpha_max = 0.07
+        self.alpha_rand = 0.12
+        self.sigma_hit = 8.
+        # self.alpha_hit = 1.
+        # self.alpha_short = 0.
+        # self.alpha_max = 0.
+        # self.alpha_rand = 0.
+        # self.sigma_hit = 8.
         # Your sensor table will be a `table_width` x `table_width` np array:
         self.table_width = 201
+        # where the heck am i supposed to find zmax
+        self.zmax = 200
         ####################################
 
         node.get_logger().info("%s" % self.map_topic)
@@ -58,7 +66,7 @@ class SensorModel:
             0.01,  # This is used as an epsilon
             self.scan_theta_discretization)
 
-        # Subscribe to the map
+        # # Subscribe to the map
         self.map = None
         self.map_set = False
         self.map_subscriber = node.create_subscription(
@@ -67,6 +75,29 @@ class SensorModel:
             self.map_callback,
             1)
 
+    def p_short(self, z, d):
+        if z<=d and d!=0:
+            return 2/d*(1-z/d)
+        else:
+            return 0
+    
+    def p_max(self, z, d):
+        if z==self.zmax:
+            return 1
+        else:
+            return 0
+    
+    def p_rand(self, z, d):
+        if z<=self.zmax:
+            return 1/self.zmax
+        else:
+            return 0
+    
+    def p_hit(self, z, d):
+        if z<=self.zmax:
+            return 1/(2*np.pi*self.sigma_hit**2)**0.5*np.exp(-(z-d)**2/(2*self.sigma_hit**2))
+        else:
+            return 0
     def precompute_sensor_model(self):
         """
         Generate and store a table which represents the sensor model.
@@ -86,9 +117,20 @@ class SensorModel:
         returns:
             No return type. Directly modify `self.sensor_model_table`.
         """
-
-        raise NotImplementedError
-
+        # using for loop here shouldn't matter because precomputing
+        prelim_array = np.empty((self.table_width, self.table_width, 4))
+        function_mapping = {0:self.p_hit, 1:self.p_short, 2:self.p_max, 3:self.p_rand}
+        for func in range(4):
+            for d in range(self.table_width):
+                for z in range(self.table_width):
+                    prelim_array[z,d, func]=function_mapping[func](z, d)
+            if func==0:
+                prelim_array[:,:, func]=prelim_array[:,:, func]/prelim_array[:,:,func].sum(axis=0, keepdims=1)
+           
+        alphas = np.array([self.alpha_hit, self.alpha_short, self.alpha_max, self.alpha_rand])
+        self.sensor_model_table = np.dot(prelim_array, alphas)
+        self.sensor_model_table=self.sensor_model_table/self.sensor_model_table.sum(0)
+            
     def evaluate(self, particles, observation):
         """
         Evaluate how likely each particle is given
@@ -112,9 +154,9 @@ class SensorModel:
 
         if not self.map_set:
             return
-
+        # downsample
+        observation=observation.reshape(-1, self.num_beams_per_particle).mean(axis=1)
         ####################################
-        # TODO
         # Evaluate the sensor model here!
         #
         # You will probably want to use this function
@@ -122,8 +164,19 @@ class SensorModel:
         # This produces a matrix of size N x num_beams_per_particle 
 
         scans = self.scan_sim.scan(particles)
-
         ####################################
+        scans = scans/(self.lidar_scale_to_map_scale)
+        scans = np.clip(scans, a_min=0, a_max=self.zmax)
+        observation = observation/(self.lidar_scale_to_map_scale)
+        observation =np.clip(observation, a_min=0, a_max = 0)
+
+        scans=scans.astype('int')
+        observation = observation.astype('int')
+        n_particles, _ = scans.shape
+        probabilities = np.empty((n_particles,))
+        for i in range(n_particles):
+            probabilities[i] = np.prod(self.sensor_model_table[observation, scans[i, :]])
+        return probabilities
 
     def map_callback(self, map_msg):
         # Convert the map to a numpy array
