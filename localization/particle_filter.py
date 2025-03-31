@@ -149,28 +149,44 @@ class ParticleFilter(Node):
     #             j += 1
     #     # self.get_logger().info(f"{indexes}")
     #     return indexes
-    def multinomal_resample(self, weights):
-        N = len(weights)
-        avg = np.mean(weights)
-        indexes = np.zeros(N, 'i')
+    # def multinomal_resample(self, weights):
+    #     N = len(weights)
+    #     avg = np.mean(weights)
+    #     indexes = np.zeros(N, 'i')
 
-        # take int(N*w) copies of each weight, which ensures particles with the
-        # same weight are drawn uniformly
-        num_copies = (np.floor(N*np.asarray(weights))).astype(int)
-        k = 0
-        for i in range(N):
-            for _ in range(num_copies[i]): # make n copies
-                indexes[k] = i
-                k += 1
+    #     # take int(N*w) copies of each weight, which ensures particles with the
+    #     # same weight are drawn uniformly
+    #     num_copies = (np.floor(N*np.asarray(weights))).astype(int)
+    #     k = 0
+    #     for i in range(N):
+    #         for _ in range(num_copies[i]): # make n copies
+    #             indexes[k] = i
+    #             k += 1
 
-        # use multinormal resample on the residual to fill up the rest. This
-        # maximizes the variance of the samples
-        residual = weights - num_copies     # get fractional part
-        residual /= sum(residual)           # normalize
-        cumulative_sum = np.cumsum(residual) 
-        indexes[k:N] = np.searchsorted(cumulative_sum, np.random.uniform(0, 1, N-k)/avg)
+    #     # use multinormal resample on the residual to fill up the rest. This
+    #     # maximizes the variance of the samples
+    #     residual = weights - num_copies     # get fractional part
+    #     residual /= sum(residual)           # normalize
+    #     cumulative_sum = np.cumsum(residual) 
+    #     indexes[k:N] = np.searchsorted(cumulative_sum, np.random.uniform(0, 1, N-k)/avg)
 
-        return indexes 
+    #     return indexes 
+
+    def gpt_resample(self, probabilities):
+        # I give up
+         # Normalize the probabilities to ensure they sum to 1
+        probabilities = probabilities / np.sum(probabilities)
+        
+        # Create a cumulative distribution function (CDF)
+        cdf = np.cumsum(probabilities)
+        
+        # Generate random numbers to stratify resampling
+        random_numbers = np.random.rand(self.num_particles)
+        
+        # Use the CDF to determine which intervals the random numbers fall into
+        resampled_indices = np.searchsorted(cdf, random_numbers)
+        
+        return resampled_indices
     def laser_callback(self, msg):
         # evaluate sensor model here
         # downsampling in the sensor model for now
@@ -180,8 +196,8 @@ class ParticleFilter(Node):
 
             # resample particles
             # NOT WORKING PLEASE HELP AHHHHHHHHHHHHHHH
-            indexes = self.multinomal_resample(self.particle_probabilities)
-            self.particles = np.resize(self.particles[indexes], self.particles.shape)
+            resampled_indices = self.gpt_resample(self.particle_probabilities)
+            self.particles[:] = self.particles[resampled_indices]
 
             # update average particle pose (in theory the robot pose)
             self.publish_robot_pose()
