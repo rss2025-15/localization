@@ -64,12 +64,11 @@ class ParticleFilter(Node):
 
         # Initialize the models
         self.motion_model = MotionModel(self)
-        self.motion_model.deterministic = False
+        self.motion_model.deterministic = True
         self.sensor_model = SensorModel(self)
 
-        self.num_particles = 100
+        self.num_particles = 1
         self.particles = np.zeros((self.num_particles, 3))
-        self.init_randomness = np.random.normal(0, 0.2, (self.num_particles, 3))
         self.particle_probabilities = np.empty((self.num_particles,))
 
         self.initialized = False
@@ -211,6 +210,9 @@ class ParticleFilter(Node):
         theta_mat = quaternion_matrix([msg.pose.pose.orientation.x, msg.pose.pose.orientation.y, msg.pose.pose.orientation.z, msg.pose.pose.orientation.w])[:3, :3]
         theta = np.arctan2(theta_mat[0,0], theta_mat[1,0])%(2*np.pi)
         self.robot_pose = np.array([msg.pose.pose.position.x, msg.pose.pose.position.y, theta])
+        self.init_randomness = np.random.normal(0, 0, (self.num_particles, 3))
+
+        # self.init_randomness[:,2] = 
 
         self.particles = self.robot_pose + self.init_randomness
         self.odom_pub.publish(self.create_odom_msg(self.robot_pose))

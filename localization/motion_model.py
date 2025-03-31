@@ -8,7 +8,7 @@ class MotionModel:
         # Do any precomputation for the motion
         # model here.
 
-        self.deterministic = False
+        self.deterministic = True
         self.updated_particles_pose=None
         self.particles_T = None
         self.odom = None
