@@ -75,6 +75,8 @@ class ParticleFilter(Node):
         self.initialized = False
         self.get_logger().info("=============+READY+=============")
 
+        self.prev_time = self.get_clock().now().nanoseconds*1e-9
+
         # Implement the MCL algorithm
         # using the sensor model and the motion model
         #
@@ -216,7 +218,11 @@ class ParticleFilter(Node):
     
     def odom_callback(self, msg):
         # odom we want dx, dy, dtheta
-        odom = np.array([msg.twist.twist.linear.x, msg.twist.twist.linear.y, msg.twist.twist.angular.z])
+        dt = self.get_clock().now().nanoseconds*1e-9 - self.prev_time
+        odom = np.array([msg.twist.twist.linear.x, msg.twist.twist.linear.y, msg.twist.twist.angular.z])*dt
+        
+        self.prev_time = self.get_clock().now().nanoseconds*1e-9
+
         # update motion model
         self.particles=self.motion_model.evaluate(self.particles, odom)
 

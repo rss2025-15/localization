@@ -165,10 +165,10 @@ class SensorModel:
 
         scans = self.scan_sim.scan(particles)
         ####################################
-        scans = scans/(self.lidar_scale_to_map_scale)
+        scans = scans/(self.resolution*self.lidar_scale_to_map_scale)
         scans = np.clip(scans, a_min=0, a_max=self.zmax)
-        observation = observation/(self.lidar_scale_to_map_scale)
-        observation =np.clip(observation, a_min=0, a_max = 0)
+        observation = observation/(self.resolution*self.lidar_scale_to_map_scale)
+        observation =np.clip(observation, a_min=0, a_max = self.zmax)
 
         scans=scans.astype('int')
         observation = observation.astype('int')
