@@ -70,7 +70,7 @@ class MotionModel:
         self.particles_T = np.matmul(self.particles_T, self.odom_T)
         self.updated_particles_pose[:, 0] = self.particles_T[:, 0,2]
         self.updated_particles_pose[:, 1] = self.particles_T[:, 1,2]
-        self.updated_particles_pose[:,2] = np.arctan2(self.particles_T[:,1,0], self.particles_T[:,0,0])%(2*np.pi)
+        self.updated_particles_pose[:,2] = np.arctan2(self.particles_T[:,1,0], self.particles_T[:,0,0])
 
         return self.updated_particles_pose
     

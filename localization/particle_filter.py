@@ -4,7 +4,7 @@ from localization.motion_model import MotionModel
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import PoseWithCovarianceStamped, PoseArray, Pose, PoseStamped
 from sensor_msgs.msg import LaserScan
-from tf_transformations import quaternion_matrix, quaternion_from_euler
+from tf_transformations import quaternion_matrix, quaternion_from_euler, euler_from_quaternion
 from rclpy.node import Node
 
 import rclpy
@@ -64,10 +64,10 @@ class ParticleFilter(Node):
 
         # Initialize the models
         self.motion_model = MotionModel(self)
-        self.motion_model.deterministic = True
+        self.motion_model.deterministic = False
         self.sensor_model = SensorModel(self)
 
-        self.num_particles = 1
+        self.num_particles = 100
         self.particles = np.zeros((self.num_particles, 3))
         self.particle_probabilities = np.empty((self.num_particles,))
 
@@ -193,7 +193,7 @@ class ParticleFilter(Node):
         # downsampling in the sensor model for now
         if self.initialized and self.sensor_model.map_set:
             self.particle_probabilities = self.sensor_model.evaluate(self.particles, np.array(msg.ranges))
-            self.get_logger().info(f"{self.particle_probabilities}")
+            # self.get_logger().info(f"{self.particle_probabilities}")
 
             # resample particles
             # NOT WORKING PLEASE HELP AHHHHHHHHHHHHHHH
@@ -207,14 +207,14 @@ class ParticleFilter(Node):
     def pose_callback(self, msg):
         # initialize pose of particles (and therefore the robot pose)
         
-        theta_mat = quaternion_matrix([msg.pose.pose.orientation.x, msg.pose.pose.orientation.y, msg.pose.pose.orientation.z, msg.pose.pose.orientation.w])[:3, :3]
-        theta = np.arctan2(theta_mat[0,0], theta_mat[1,0])%(2*np.pi)
+        theta= euler_from_quaternion([msg.pose.pose.orientation.x, msg.pose.pose.orientation.y, msg.pose.pose.orientation.z, msg.pose.pose.orientation.w])[-1]
+        
         self.robot_pose = np.array([msg.pose.pose.position.x, msg.pose.pose.position.y, theta])
-        self.init_randomness = np.random.normal(0, 0, (self.num_particles, 3))
-
-        # self.init_randomness[:,2] = 
+        self.init_randomness = np.random.normal(0, 0.2, (self.num_particles, 3))
 
         self.particles = self.robot_pose + self.init_randomness
+
+        self.get_logger().info(f"{self.particles}")
         self.odom_pub.publish(self.create_odom_msg(self.robot_pose))
         self.initialized = True
     
@@ -230,6 +230,8 @@ class ParticleFilter(Node):
 
         # update average particle pose (in theory the robot pose)
         # other thoughts on averaging - only take particles with probability higher than threshold??
+        self.get_logger().info(f"{self.particles}")
+
         self.publish_robot_pose()
         self.publish_particles()
         
