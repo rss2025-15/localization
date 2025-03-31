@@ -69,7 +69,7 @@ class ParticleFilter(Node):
 
         self.num_particles = 100
         self.particles = np.zeros((self.num_particles, 3))
-        self.init_randomness = np.random.normal(0, 10, (self.num_particles, 3))
+        self.init_randomness = np.random.normal(0, 0.2, (self.num_particles, 3))
         self.particle_probabilities = np.empty((self.num_particles,))
 
         self.initialized = False
@@ -177,10 +177,10 @@ class ParticleFilter(Node):
     def gpt_resample(self, probabilities):
         # I give up
          # Normalize the probabilities to ensure they sum to 1
-        probabilities = probabilities / np.sum(probabilities)
+        norm_probabilities = probabilities / np.sum(probabilities)
         
         # Create a cumulative distribution function (CDF)
-        cdf = np.cumsum(probabilities)
+        cdf = np.cumsum(norm_probabilities)
         
         # Generate random numbers to stratify resampling
         random_numbers = np.random.rand(self.num_particles)
@@ -220,7 +220,7 @@ class ParticleFilter(Node):
         # odom we want dx, dy, dtheta
         dt = self.get_clock().now().nanoseconds*1e-9 - self.prev_time
         odom = np.array([msg.twist.twist.linear.x, msg.twist.twist.linear.y, msg.twist.twist.angular.z])*dt
-        
+
         self.prev_time = self.get_clock().now().nanoseconds*1e-9
 
         # update motion model
