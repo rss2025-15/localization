@@ -7,6 +7,8 @@ from sensor_msgs.msg import LaserScan
 from ackermann_msgs.msg import AckermannDriveStamped
 from tf_transformations import quaternion_matrix, quaternion_from_euler, euler_from_quaternion
 from rclpy.node import Node
+from tf2_ros import TransformBroadcaster
+from geometry_msgs.msg import TransformStamped
 
 import rclpy
 import numpy as np
@@ -131,6 +133,10 @@ class ParticleFilter(Node):
         #
         # Publish a transformation frame between the map
         # and the particle_filter_frame.
+
+        # map->base_link tf broadcaster
+        self.tf_broadcaster = TransformBroadcaster(self)
+        
     def create_odom_msg(self, pose):
         t= Odometry()
          # Read message content and assign it to
@@ -185,6 +191,21 @@ class ParticleFilter(Node):
             error = self.ground_truth_pose - odom_array
             error[2] = min(abs(error[2]), abs(2*np.pi - abs(error[2]))) # angle error is absolute valued
             self.get_logger().info(f"error {error}")
+        
+        t = TransformStamped()
+        t.header.stamp = self.get_clock().now().to_msg()
+        t.header.frame_id = "map"
+        t.child_frame_id = self.particle_filter_frame
+
+        t.transform.translation.x = odom_array[0]
+        t.transform.translation.y = odom_array[1]
+        q = quaternion_from_euler(0,0,odom_array[2])
+        t.transform.rotation.x = q[0]
+        t.transform.rotation.y = q[1]
+        t.transform.rotation.z = q[2]
+        t.transform.rotation.w = q[3]
+
+        self.tf_broadcaster.sendTransform(t)
         
 
     # def stratified_resample(self, weights):
