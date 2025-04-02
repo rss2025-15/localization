@@ -107,7 +107,7 @@ class ParticleFilter(Node):
         self.theta_noise = self.get_parameter('theta_noise').get_parameter_value().double_value        
 
         # Initialize the models
-        self.motion_model = MotionModel(self)
+        self.motion_model = MotionModel(self, self.num_particles)
         self.motion_model.deterministic = self.deterministic
         self.sensor_model = SensorModel(self)
 
@@ -314,48 +314,12 @@ class ParticleFilter(Node):
         # self.get_logger().info(f"{self.particles}")
 
         # update latest ground truth pose
-        theta= euler_from_quaternion([msg.pose.pose.orientation.x, msg.pose.pose.orientation.y, msg.pose.pose.orientation.z, msg.pose.pose.orientation.w])[-1]
+        theta = euler_from_quaternion([msg.pose.pose.orientation.x, msg.pose.pose.orientation.y, msg.pose.pose.orientation.z, msg.pose.pose.orientation.w])[-1]
         self.ground_truth_pose = np.array([msg.pose.pose.position.x, msg.pose.pose.position.y, theta])
 
         self.publish_robot_pose()
         self.publish_particles()
         
-    def drive_callback(self, msg):
-        self.drive_msg = msg
-        
-    def drive_timer_callback(self):
-        # self.get_logger().info('pre odom callback')
-        if self.use_imu or (self.drive_msg is None):
-            return
-        # self.get_logger().info('odom callback')
-        # odom we want dx, dy, dtheta
-        dt = self.get_clock().now().nanoseconds*1e-9 - self.prev_time
-        self.prev_time = self.get_clock().now().nanoseconds*1e-9
-
-        vel = self.drive_msg.drive.speed
-        steer = self.drive_msg.drive.steering_angle
-        # self.get_logger().info(f'vel: {vel}, steer: {steer}')
-
-        # update motion model
-        odom = np.ndarray((self.num_particles,3))
-        for i in range(self.num_particles):
-            if self.deterministic:
-                odom[i,:] = self.deterministic_drive(vel, steer, dt)
-            else:
-                odom[i,:] = self.deterministic_drive(vel + np.random.normal(0, self.drive_vel_noise), steer + np.random.normal(0, self.drive_steer_noise), dt) + np.random.normal(0, np.array([self.xy_noise, self.xy_noise, self.theta_noise]), (3,))
-        
-        self.particles=self.motion_model.evaluate(self.particles, odom)
-
-        # update average particle pose (in theory the robot pose)
-        # other thoughts on averaging - only take particles with probability higher than threshold??
-        # self.get_logger().info(f"{self.particles}")
-
-        # update latest ground truth pose
-        theta= euler_from_quaternion([msg.pose.pose.orientation.x, msg.pose.pose.orientation.y, msg.pose.pose.orientation.z, msg.pose.pose.orientation.w])[-1]
-        self.ground_truth_pose = np.array([msg.pose.pose.position.x, msg.pose.pose.position.y, theta])
-
-        self.publish_robot_pose()
-        self.publish_particles()
     def drive_callback(self, msg):
         self.drive_msg = msg
         

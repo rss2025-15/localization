@@ -2,17 +2,22 @@ import numpy as np
 
 class MotionModel:
 
-    def __init__(self, node):
+    def __init__(self, node, n):
         ####################################
         # Do any precomputation for the motion
         # model here.
 
         self.deterministic = True
-        self.updated_particles_pose=None
-        self.particles_T = None
         self.odom = None
-        self.odom_T = None
+        # self.updated_particles_pose=None
+        # self.particles_T = None
+        # self.odom_T = None
         # self.randomness = None
+
+        self.updated_particles_pose = np.empty((n, 3))
+        self.particles_T = np.empty((n,3, 3))
+        self.odom_T = np.empty((n, 3, 3))
+        # self.randomness = np.zeros((n,3,3))
 
         ####################################
     def makeT(self, x,y,theta):
@@ -51,12 +56,7 @@ class MotionModel:
             return T_stack
 
 
-        n, _ = particles.shape
-        if not np.any(self.updated_particles_pose):
-            self.updated_particles_pose = np.empty((n, 3))
-            self.particles_T = np.empty((n,3, 3))
-            self.odom_T = np.empty((n, 3, 3))
-            # self.randomness = np.zeros((n,3,3))
+        n, _ = particles.shape          
 
         # self.odom = np.array([odometry]*n)
         self.odom = odometry
