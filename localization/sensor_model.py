@@ -155,7 +155,7 @@ class SensorModel:
         if not self.map_set:
             return
         # downsample
-        # observation=observation.reshape(-1, self.num_beams_per_particle).mean(axis=1)
+        observation=observation[40:1040].reshape(-1, 10).mean(axis=1)
         ####################################
         # Evaluate the sensor model here!
         #

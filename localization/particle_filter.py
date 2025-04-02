@@ -316,9 +316,9 @@ class ParticleFilter(Node):
         dt = self.get_clock().now().nanoseconds*1e-9 - self.prev_time
         self.prev_time = self.get_clock().now().nanoseconds*1e-9
 
-        vx = msg.twist.twist.linear.x
-        vy = msg.twist.twist.linear.y
-        omega = msg.twist.twist.angular.z
+        vx = -msg.twist.twist.linear.x
+        vy = -msg.twist.twist.linear.y
+        omega = -msg.twist.twist.angular.z
 
         # update motion model
         odom = np.ndarray((self.num_particles,3))
