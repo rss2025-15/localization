@@ -4,12 +4,14 @@ from localization.motion_model import MotionModel
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import PoseWithCovarianceStamped, PoseArray, Pose, PoseStamped
 from sensor_msgs.msg import LaserScan
+from ackermann_msgs.msg import AckermannDriveStamped
 from tf_transformations import quaternion_matrix, quaternion_from_euler, euler_from_quaternion
 from rclpy.node import Node
 
 import rclpy
 import numpy as np
 assert rclpy
+import math
 
 
 class ParticleFilter(Node):
@@ -19,6 +21,12 @@ class ParticleFilter(Node):
 
         self.declare_parameter('particle_filter_frame', "default")
         self.particle_filter_frame = self.get_parameter('particle_filter_frame').get_parameter_value().string_value
+
+        self.declare_parameter('init_xy_noise', 0.0)
+        self.init_xy_noise = self.get_parameter('init_xy_noise').get_parameter_value().double_value
+
+        self.declare_parameter('init_theta_noise', 0.0)
+        self.init_theta_noise = self.get_parameter('init_theta_noise').get_parameter_value().double_value
 
         #  *Important Note #1:* It is critical for your particle
         #     filter to obtain the following topic names from the
@@ -30,9 +38,11 @@ class ParticleFilter(Node):
         
         self.declare_parameter('odom_topic', "/odom")
         self.declare_parameter('scan_topic', "/scan")
+        self.declare_parameter('drive_topic', "/drive")
 
         scan_topic = self.get_parameter("scan_topic").get_parameter_value().string_value
         odom_topic = self.get_parameter("odom_topic").get_parameter_value().string_value
+        drive_topic = self.get_parameter("drive_topic").get_parameter_value().string_value
 
         self.laser_sub = self.create_subscription(LaserScan, scan_topic,
                                                   self.laser_callback,
@@ -41,6 +51,13 @@ class ParticleFilter(Node):
         self.odom_sub = self.create_subscription(Odometry, odom_topic,
                                                  self.odom_callback,
                                                  1)
+        
+        self.drive_sub = self.create_subscription(AckermannDriveStamped, drive_topic,
+                                                 self.drive_callback,
+                                                 1)
+        
+        self.drive_msg = None
+        self.timer = self.create_timer(0.01, self.drive_timer_callback)
 
         #  *Important Note #2:* You must respond to pose
         #     initialization requests sent to the /initialpose
@@ -62,12 +79,38 @@ class ParticleFilter(Node):
 
         self.odom_pub = self.create_publisher(Odometry, "/pf/pose/odom", 1)
 
+        self.declare_parameter('num_particles', 100)
+        self.num_particles = self.get_parameter('num_particles').get_parameter_value().integer_value
+
+        self.declare_parameter('deterministic', False)
+        self.deterministic = self.get_parameter('deterministic').get_parameter_value().bool_value
+
+        self.declare_parameter('car_length', 0.0)
+        self.car_length = self.get_parameter('car_length').get_parameter_value().double_value
+
+        self.declare_parameter('use_imu', True)
+        self.use_imu = self.get_parameter('use_imu').get_parameter_value().bool_value
+        # imu noise params
+        self.declare_parameter('imu_vxy_noise', 0.0)
+        self.imu_vxy_noise = self.get_parameter('imu_vxy_noise').get_parameter_value().double_value
+        self.declare_parameter('imu_omega_noise', 0.0)
+        self.imu_omega_noise = self.get_parameter('imu_omega_noise').get_parameter_value().double_value
+        # drive command noise params
+        self.declare_parameter('drive_vel_noise', 0.0)
+        self.drive_vel_noise = self.get_parameter('drive_vel_noise').get_parameter_value().double_value
+        self.declare_parameter('drive_steer_noise', 0.0)
+        self.drive_steer_noise = self.get_parameter('drive_steer_noise').get_parameter_value().double_value
+        # resulting pose noise params
+        self.declare_parameter('xy_noise', 0.0)
+        self.xy_noise = self.get_parameter('xy_noise').get_parameter_value().double_value
+        self.declare_parameter('theta_noise', 0.0)
+        self.theta_noise = self.get_parameter('theta_noise').get_parameter_value().double_value        
+
         # Initialize the models
         self.motion_model = MotionModel(self)
-        self.motion_model.deterministic = False
+        self.motion_model.deterministic = self.deterministic
         self.sensor_model = SensorModel(self)
 
-        self.num_particles = 100
         self.particles = np.zeros((self.num_particles, 3))
         self.particle_probabilities = np.empty((self.num_particles,))
 
@@ -223,22 +266,47 @@ class ParticleFilter(Node):
         theta= euler_from_quaternion([msg.pose.pose.orientation.x, msg.pose.pose.orientation.y, msg.pose.pose.orientation.z, msg.pose.pose.orientation.w])[-1]
         
         self.robot_pose = np.array([msg.pose.pose.position.x, msg.pose.pose.position.y, theta])
-        self.init_randomness = np.random.normal(0, 0.2, (self.num_particles, 3))
+        self.init_randomness = np.random.normal(0, np.array([self.init_xy_noise, self.init_xy_noise, self.init_theta_noise]), (self.num_particles, 3))
 
         self.particles = self.robot_pose + self.init_randomness
 
         self.get_logger().info(f"{self.particles}")
         self.odom_pub.publish(self.create_odom_msg(self.robot_pose))
         self.initialized = True
+
+    def deterministic_imu(self, vx, vy, omega, dt):
+        return np.array([vx, vy, omega])*dt
+    
+    def deterministic_drive(self, vel, steer, dt):
+        # self.get_logger().info(f'vel: {vel}, steer: {steer}')
+        stop_dist = vel*dt
+        if abs(steer) < 0.001:
+            return np.array([stop_dist, 0, 0])
+        else:
+            turning_radius = self.car_length / math.tan(steer) # positive if turning left, negative if right
+            turn_angle = stop_dist / turning_radius # positive if left, negative if right,m -pi/2 to pi/2
+            stop_x, stop_y = turning_radius*(math.cos(turn_angle)-1), turning_radius*math.sin(turn_angle)
+            return np.array([stop_y, -stop_x, turn_angle])
     
     def odom_callback(self, msg):
+        if not self.use_imu:
+            return
         # odom we want dx, dy, dtheta
         dt = self.get_clock().now().nanoseconds*1e-9 - self.prev_time
-        odom = np.array([msg.twist.twist.linear.x, msg.twist.twist.linear.y, msg.twist.twist.angular.z])*dt
-
         self.prev_time = self.get_clock().now().nanoseconds*1e-9
 
+        vx = msg.twist.twist.linear.x
+        vy = msg.twist.twist.linear.y
+        omega = msg.twist.twist.angular.z
+
         # update motion model
+        odom = np.ndarray((self.num_particles,3))
+        for i in range(self.num_particles):
+            if self.deterministic:
+                odom[i,:] = self.deterministic_imu(vx, vy, omega, dt)
+            else:
+                odom[i,:] = self.deterministic_imu(vx + np.random.normal(0, self.imu_vxy_noise), vy + np.random.normal(0, self.imu_vxy_noise), omega + np.random.normal(0, self.imu_omega_noise), dt) + np.random.normal(0, np.array([self.xy_noise, self.xy_noise, self.theta_noise]), (3,))
+
         self.particles=self.motion_model.evaluate(self.particles, odom)
 
         # update average particle pose (in theory the robot pose)
@@ -252,8 +320,74 @@ class ParticleFilter(Node):
         self.publish_robot_pose()
         self.publish_particles()
         
+    def drive_callback(self, msg):
+        self.drive_msg = msg
+        
+    def drive_timer_callback(self):
+        # self.get_logger().info('pre odom callback')
+        if self.use_imu or (self.drive_msg is None):
+            return
+        # self.get_logger().info('odom callback')
+        # odom we want dx, dy, dtheta
+        dt = self.get_clock().now().nanoseconds*1e-9 - self.prev_time
+        self.prev_time = self.get_clock().now().nanoseconds*1e-9
 
+        vel = self.drive_msg.drive.speed
+        steer = self.drive_msg.drive.steering_angle
+        # self.get_logger().info(f'vel: {vel}, steer: {steer}')
 
+        # update motion model
+        odom = np.ndarray((self.num_particles,3))
+        for i in range(self.num_particles):
+            if self.deterministic:
+                odom[i,:] = self.deterministic_drive(vel, steer, dt)
+            else:
+                odom[i,:] = self.deterministic_drive(vel + np.random.normal(0, self.drive_vel_noise), steer + np.random.normal(0, self.drive_steer_noise), dt) + np.random.normal(0, np.array([self.xy_noise, self.xy_noise, self.theta_noise]), (3,))
+        
+        self.particles=self.motion_model.evaluate(self.particles, odom)
+
+        # update average particle pose (in theory the robot pose)
+        # other thoughts on averaging - only take particles with probability higher than threshold??
+        # self.get_logger().info(f"{self.particles}")
+
+        # update latest ground truth pose
+        theta= euler_from_quaternion([msg.pose.pose.orientation.x, msg.pose.pose.orientation.y, msg.pose.pose.orientation.z, msg.pose.pose.orientation.w])[-1]
+        self.ground_truth_pose = np.array([msg.pose.pose.position.x, msg.pose.pose.position.y, theta])
+
+        self.publish_robot_pose()
+        self.publish_particles()
+    def drive_callback(self, msg):
+        self.drive_msg = msg
+        
+    def drive_timer_callback(self):
+        # self.get_logger().info('pre odom callback')
+        if self.use_imu or (self.drive_msg is None):
+            return
+        # self.get_logger().info('odom callback')
+        # odom we want dx, dy, dtheta
+        dt = self.get_clock().now().nanoseconds*1e-9 - self.prev_time
+        self.prev_time = self.get_clock().now().nanoseconds*1e-9
+
+        vel = self.drive_msg.drive.speed
+        steer = self.drive_msg.drive.steering_angle
+        # self.get_logger().info(f'vel: {vel}, steer: {steer}')
+
+        # update motion model
+        odom = np.ndarray((self.num_particles,3))
+        for i in range(self.num_particles):
+            if self.deterministic:
+                odom[i,:] = self.deterministic_drive(vel, steer, dt)
+            else:
+                odom[i,:] = self.deterministic_drive(vel + np.random.normal(0, self.drive_vel_noise), steer + np.random.normal(0, self.drive_steer_noise), dt) + np.random.normal(0, np.array([self.xy_noise, self.xy_noise, self.theta_noise]), (3,))
+        
+        self.particles=self.motion_model.evaluate(self.particles, odom)
+
+        # update average particle pose (in theory the robot pose)
+        # other thoughts on averaging - only take particles with probability higher than threshold??
+        self.get_logger().info(f"{self.particles}")
+
+        self.publish_robot_pose()
+        self.publish_particles()
 
 def main(args=None):
     rclpy.init(args=args)

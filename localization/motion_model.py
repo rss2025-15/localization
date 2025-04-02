@@ -4,7 +4,6 @@ class MotionModel:
 
     def __init__(self, node):
         ####################################
-        # TODO
         # Do any precomputation for the motion
         # model here.
 
@@ -13,7 +12,7 @@ class MotionModel:
         self.particles_T = None
         self.odom = None
         self.odom_T = None
-        self.randomness = None
+        # self.randomness = None
 
         ####################################
     def makeT(self, x,y,theta):
@@ -57,13 +56,13 @@ class MotionModel:
             self.updated_particles_pose = np.empty((n, 3))
             self.particles_T = np.empty((n,3, 3))
             self.odom_T = np.empty((n, 3, 3))
-            self.randomness = np.zeros((n,3,3))
+            # self.randomness = np.zeros((n,3,3))
 
-        self.odom = np.array([odometry]*n)
-        if not self.deterministic:
-            # assume noisy odom measurements i guess
-            randomness =np.random.normal(0, 0.1, (n, 3))
-            self.odom += randomness
+        # self.odom = np.array([odometry]*n)
+        self.odom = odometry
+        # if not self.deterministic:
+        #     randomness =np.random.normal(0, np.array([self.x_noise, self.y_noise, self.theta_noise]), (n, 3))
+        #     self.odom += randomness
         
         self.odom_T =generate_T_stack(self.odom, self.odom_T)
         self.particles_T = generate_T_stack(particles, self.particles_T)
