@@ -1,9 +1,9 @@
 particle_filter:
   ros__parameters:
-    num_particles: 200
+    num_particles: 100
 
-    init_xy_noise: 0.0
-    init_theta_noise: 0.0
+    init_xy_noise: 0.2
+    init_theta_noise: 0.2
 
     # The number of lidar beams emitted from
     # each particle. This doesn't need to be
@@ -34,13 +34,13 @@ particle_filter:
 
     car_length: 0.5
 
-    use_imu: false
+    use_imu: true
     # imu noise params
-    imu_vxy_noise: 0.5
-    imu_omega_noise: 0.1
+    imu_vxy_noise: 0.0
+    imu_omega_noise: 0.0
     # drive command noise params
     drive_vel_noise: 0.5
     drive_steer_noise: 0.01
     # resulting pose noise params
-    xy_noise: 0.01
-    theta_noise: 0.01
+    xy_noise: 0.1
+    theta_noise: 0.1
