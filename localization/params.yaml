@@ -19,8 +19,8 @@ particle_filter:
 
     # The names of topics to listen and publish to
     map_topic: "/map"
-    scan_topic: "/scan_fake" # for testing the motion model alone
-    # scan_topic: "/scan"
+    # scan_topic: "/scan_fake" # for testing the motion model alone
+    scan_topic: "/scan"
     odom_topic: "/odom"
     drive_topic: "/drive"
 
