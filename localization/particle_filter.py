@@ -76,6 +76,9 @@ class ParticleFilter(Node):
 
         self.prev_time = self.get_clock().now().nanoseconds*1e-9
 
+        # "latest" ground truth, for sim
+        self.ground_truth_pose = np.empty(3)
+
         # Implement the MCL algorithm
         # using the sensor model and the motion model
         #
@@ -122,16 +125,25 @@ class ParticleFilter(Node):
 
             msg.poses.append(particle_pose)
         self.particles_pub.publish(msg)
-    def publish_robot_pose(self):
+    def publish_robot_pose(self, truthing=True):
         avg_theta = np.arctan2(np.mean(np.sin(self.motion_model.updated_particles_pose[:,2])), np.mean(np.cos(self.motion_model.updated_particles_pose[:, 2])))%(2*np.pi)
-        odom_msg = self.create_odom_msg(np.array([np.mean(self.motion_model.updated_particles_pose[:,0]), np.mean(self.motion_model.updated_particles_pose[:,1]), avg_theta]))
+        odom_array = np.array([np.mean(self.motion_model.updated_particles_pose[:,0]), np.mean(self.motion_model.updated_particles_pose[:,1]), avg_theta])
+        odom_msg = self.create_odom_msg(odom_array)
         self.odom_pub.publish(odom_msg)
 
         est_robot_msg = PoseStamped()
         est_robot_msg.pose = odom_msg.pose.pose
+        est_robot_msg.header.frame_id = 'map'
         est_robot_msg.header.stamp = self.get_clock().now().to_msg()
         self.estimated_robot_pub.publish(est_robot_msg)
-    
+
+        # ground truthing
+        if truthing:
+            error = self.ground_truth_pose - odom_array
+            error[2] = min(abs(error[2]), abs(2*np.pi - abs(error[2]))) # angle error is absolute valued
+            self.get_logger().info(f"error {error}")
+        
+
     # def stratified_resample(self, weights):
     #     N = len(weights)
     #     # make N subdivisions, chose a random position within each one
@@ -204,6 +216,7 @@ class ParticleFilter(Node):
             self.publish_robot_pose()
             self.publish_particles()
 
+
     def pose_callback(self, msg):
         # initialize pose of particles (and therefore the robot pose)
         
@@ -230,7 +243,11 @@ class ParticleFilter(Node):
 
         # update average particle pose (in theory the robot pose)
         # other thoughts on averaging - only take particles with probability higher than threshold??
-        self.get_logger().info(f"{self.particles}")
+        # self.get_logger().info(f"{self.particles}")
+
+        # update latest ground truth pose
+        theta= euler_from_quaternion([msg.pose.pose.orientation.x, msg.pose.pose.orientation.y, msg.pose.pose.orientation.z, msg.pose.pose.orientation.w])[-1]
+        self.ground_truth_pose = np.array([msg.pose.pose.position.x, msg.pose.pose.position.y, theta])
 
         self.publish_robot_pose()
         self.publish_particles()
