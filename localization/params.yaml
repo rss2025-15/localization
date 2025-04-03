@@ -42,5 +42,7 @@ particle_filter:
     drive_vel_noise: 0.5
     drive_steer_noise: 0.01
     # resulting pose noise params
-    xy_noise: 0.1
-    theta_noise: 0.1
+    xy_noise: 0.02
+    theta_noise: 0.02
+
+    in_sim: 1

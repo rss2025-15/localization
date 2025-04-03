@@ -7,8 +7,9 @@ class MotionModel:
         # Do any precomputation for the motion
         # model here.
 
-        self.deterministic = True
+        self.deterministic = node.get_parameter("in_sim").get_parameter_value().integer_value
         self.odom = None
+        self.IN_SIM = node.get_parameter("in_sim").get_parameter_value().integer_value
         # self.updated_particles_pose=None
         # self.particles_T = None
         # self.odom_T = None
@@ -20,8 +21,7 @@ class MotionModel:
         # self.randomness = np.zeros((n,3,3))
 
         ####################################
-    def makeT(self, x,y,theta):
-        return 
+
     def evaluate(self, particles, odometry):
         """
         Update the particles to reflect probable
