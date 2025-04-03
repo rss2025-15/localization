@@ -7,7 +7,7 @@ from sensor_msgs.msg import LaserScan
 from ackermann_msgs.msg import AckermannDriveStamped
 from tf_transformations import quaternion_matrix, quaternion_from_euler, euler_from_quaternion
 from rclpy.node import Node
-from tf2_ros import TransformBroadcaster
+from tf2_ros import TransformBroadcaster, TransformListener, Buffer
 from geometry_msgs.msg import TransformStamped
 
 import rclpy
@@ -124,7 +124,7 @@ class ParticleFilter(Node):
         self.prev_time = self.get_clock().now().nanoseconds*1e-9
 
         # "latest" ground truth, for sim
-        self.ground_truth_pose = np.empty(3)
+        # self.ground_truth_pose = np.empty(3)
 
         # Implement the MCL algorithm
         # using the sensor model and the motion model
@@ -138,6 +138,8 @@ class ParticleFilter(Node):
 
         # map->base_link tf broadcaster
         self.tf_broadcaster = TransformBroadcaster(self)
+        self.buffer = Buffer()
+        self.tf_listener = TransformListener(self.buffer, self)
         
     def create_odom_msg(self, pose):
         t= Odometry()
@@ -189,8 +191,11 @@ class ParticleFilter(Node):
         self.estimated_robot_pub.publish(est_robot_msg)
 
         # ground truthing
-        if self.IN_SIM:
-            error = self.ground_truth_pose - odom_array
+        if self.IN_SIM and self.initialized:
+            truth = self.buffer.lookup_transform('base_link', 'map', rclpy.time.Time(), rclpy.duration.Duration(seconds = 2))
+            truth_orientation = euler_from_quaternion([truth.transform.rotation.x, truth.transform.rotation.y, truth.transform.rotation.z, truth.transform.rotation.w])[-1]
+            truth_pose = np.array([truth.transform.translation.x, truth.transform.translation.y, truth_orientation])
+            error = truth_pose - odom_array
             error[2] = min(abs(error[2]), abs(2*np.pi - abs(error[2]))) # angle error is absolute valued
             self.get_logger().info(f"error {error}")
         
@@ -208,6 +213,7 @@ class ParticleFilter(Node):
         t.transform.rotation.w = q[3]
 
         self.tf_broadcaster.sendTransform(t)
+        
         
 
     def multinomial_resample(self, probabilities):
@@ -349,9 +355,10 @@ class ParticleFilter(Node):
         # other thoughts on averaging - only take particles with probability higher than threshold??
         # self.get_logger().info(f"{self.particles}")
 
-        # update latest ground truth pose
-        theta = euler_from_quaternion([msg.pose.pose.orientation.x, msg.pose.pose.orientation.y, msg.pose.pose.orientation.z, msg.pose.pose.orientation.w])[-1]
-        self.ground_truth_pose = np.array([msg.pose.pose.position.x, msg.pose.pose.position.y, theta])
+        #### ignore ts
+        # # update latest ground truth pose
+        # theta = euler_from_quaternion([msg.pose.pose.orientation.x, msg.pose.pose.orientation.y, msg.pose.pose.orientation.z, msg.pose.pose.orientation.w])[-1]
+        # self.ground_truth_pose = np.array([msg.pose.pose.position.x, msg.pose.pose.position.y, theta])
 
         self.publish_robot_pose()
         self.publish_particles()
