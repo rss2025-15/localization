@@ -47,3 +47,6 @@ particle_filter:
     # resulting pose noise params
     xy_noise: 0.1
     theta_noise: 0.1
+
+    in_sim: 0
+    is_rosbag: 1

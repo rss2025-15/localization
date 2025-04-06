@@ -42,11 +42,13 @@ class ParticleFilter(Node):
         self.declare_parameter('scan_topic', "/scan")
         self.declare_parameter('drive_topic', "/drive")
         self.declare_parameter('in_sim', 1)
+        self.declare_parameter('is_rosbag', 0)
 
         scan_topic = self.get_parameter("scan_topic").get_parameter_value().string_value
         odom_topic = self.get_parameter("odom_topic").get_parameter_value().string_value
         drive_topic = self.get_parameter("drive_topic").get_parameter_value().string_value
         self.IN_SIM = self.get_parameter("in_sim").get_parameter_value().integer_value
+        self.is_rosbag = self.get_parameter("is_rosbag").get_parameter_value().integer_value
 
         self.laser_sub = self.create_subscription(LaserScan, scan_topic,
                                                   self.laser_callback,
@@ -72,7 +74,7 @@ class ParticleFilter(Node):
         self.pose_sub = self.create_subscription(PoseWithCovarianceStamped, "/initialpose",
                                                  self.pose_callback,
                                                  1)
-        self.particles_pub = self.create_publisher(PoseArray, '/visualize_particles_rosbag', 1)
+        self.particles_pub = self.create_publisher(PoseArray, '/visualize_particles_rosbag' if self.is_rosbag else '/visualize_particles', 1)
         self.estimated_robot_pub = self.create_publisher(PoseStamped, '/estimated_robot', 1)
         #  *Important Note #3:* You must publish your pose estimate to
         #     the following topic. In particular, you must use the
