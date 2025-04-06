@@ -109,8 +109,10 @@ class ParticleFilter(Node):
         self.declare_parameter('drive_steer_noise', 0.0)
         self.drive_steer_noise = self.get_parameter('drive_steer_noise').get_parameter_value().double_value
         # resulting pose noise params
-        self.declare_parameter('xy_noise', 0.0)
-        self.xy_noise = self.get_parameter('xy_noise').get_parameter_value().double_value
+        self.declare_parameter('x_noise', 0.0)
+        self.x_noise = self.get_parameter('x_noise').get_parameter_value().double_value
+        self.declare_parameter('y_noise', 0.0)
+        self.y_noise = self.get_parameter('y_noise').get_parameter_value().double_value
         self.declare_parameter('theta_noise', 0.0)
         self.theta_noise = self.get_parameter('theta_noise').get_parameter_value().double_value        
 
@@ -351,7 +353,7 @@ class ParticleFilter(Node):
             if self.deterministic:
                 odom[i,:] = self.deterministic_imu(vx, vy, omega, dt)
             else:
-                odom[i,:] = self.deterministic_imu(vx + np.random.normal(0, self.imu_vx_noise), vy + np.random.normal(0, self.imu_vy_noise), omega + np.random.normal(0, self.imu_omega_noise), dt) + np.random.normal(0, np.array([self.xy_noise, self.xy_noise, self.theta_noise]), (3,))
+                odom[i,:] = self.deterministic_imu(vx + np.random.normal(0, self.imu_vx_noise), vy + np.random.normal(0, self.imu_vy_noise), omega + np.random.normal(0, self.imu_omega_noise), dt) + np.random.normal(0, np.array([self.x_noise, self.y_noise, self.theta_noise]), (3,))
 
         self.particles=self.motion_model.evaluate(self.particles, odom)
 
@@ -389,7 +391,7 @@ class ParticleFilter(Node):
             if self.deterministic:
                 odom[i,:] = self.deterministic_drive(vel, steer, dt)
             else:
-                odom[i,:] = self.deterministic_drive(vel + np.random.normal(0, self.drive_vel_noise), steer + np.random.normal(0, self.drive_steer_noise), dt) + np.random.normal(0, np.array([self.xy_noise, self.xy_noise, self.theta_noise]), (3,))
+                odom[i,:] = self.deterministic_drive(vel + np.random.normal(0, self.drive_vel_noise), steer + np.random.normal(0, self.drive_steer_noise), dt) + np.random.normal(0, np.array([self.x_noise, self.y_noise, self.theta_noise]), (3,))
         
         self.particles=self.motion_model.evaluate(self.particles, odom)
 

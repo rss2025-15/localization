@@ -36,13 +36,15 @@ particle_filter:
 
     use_imu: true
     # imu noise params
-    imu_vxy_noise: 0.0
+    imu_vx_noise: 0.0
+    imu_vy_noise: 0.0
     imu_omega_noise: 0.0
     # drive command noise params
     drive_vel_noise: 0.5
     drive_steer_noise: 0.01
     # resulting pose noise params
-    xy_noise: 0.02
+    x_noise: 0.02
+    y_noise: 0.02
     theta_noise: 0.02
 
     in_sim: 1

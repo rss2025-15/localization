@@ -157,7 +157,7 @@ class SensorModel:
         if not self.map_set:
             return
         # downsample
-        if self.IN_SIM==0:
+        if self.IN_SIM == 0:
             observation=observation[40:1040].reshape(-1, 10).mean(axis=1)
         ####################################
         # Evaluate the sensor model here!
