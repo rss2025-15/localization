@@ -7,3 +7,5 @@ scan_simulator_2d.cpp
 *.pyc
 .vscode/
 CATKIN_IGNORE
+rosbags/
+videos/

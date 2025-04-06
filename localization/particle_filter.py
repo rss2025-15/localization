@@ -70,7 +70,7 @@ class ParticleFilter(Node):
         self.pose_sub = self.create_subscription(PoseWithCovarianceStamped, "/initialpose",
                                                  self.pose_callback,
                                                  1)
-        self.particles_pub = self.create_publisher(PoseArray, '/visualize_particles', 1)
+        self.particles_pub = self.create_publisher(PoseArray, '/visualize_particles_rosbag', 1)
         self.estimated_robot_pub = self.create_publisher(PoseStamped, '/estimated_robot', 1)
         #  *Important Note #3:* You must publish your pose estimate to
         #     the following topic. In particular, you must use the
@@ -93,8 +93,10 @@ class ParticleFilter(Node):
         self.declare_parameter('use_imu', True)
         self.use_imu = self.get_parameter('use_imu').get_parameter_value().bool_value
         # imu noise params
-        self.declare_parameter('imu_vxy_noise', 0.0)
-        self.imu_vxy_noise = self.get_parameter('imu_vxy_noise').get_parameter_value().double_value
+        self.declare_parameter('imu_vx_noise', 0.0)
+        self.imu_vx_noise = self.get_parameter('imu_vx_noise').get_parameter_value().double_value
+        self.declare_parameter('imu_vy_noise', 0.0)
+        self.imu_vy_noise = self.get_parameter('imu_vy_noise').get_parameter_value().double_value
         self.declare_parameter('imu_omega_noise', 0.0)
         self.imu_omega_noise = self.get_parameter('imu_omega_noise').get_parameter_value().double_value
         # drive command noise params
@@ -316,9 +318,9 @@ class ParticleFilter(Node):
         dt = self.get_clock().now().nanoseconds*1e-9 - self.prev_time
         self.prev_time = self.get_clock().now().nanoseconds*1e-9
 
-        vx = msg.twist.twist.linear.x
-        vy = msg.twist.twist.linear.y
-        omega = msg.twist.twist.angular.z
+        vx = -msg.twist.twist.linear.x
+        vy = -msg.twist.twist.linear.y
+        omega = -msg.twist.twist.angular.z
 
         # update motion model
         odom = np.ndarray((self.num_particles,3))
@@ -326,7 +328,7 @@ class ParticleFilter(Node):
             if self.deterministic:
                 odom[i,:] = self.deterministic_imu(vx, vy, omega, dt)
             else:
-                odom[i,:] = self.deterministic_imu(vx + np.random.normal(0, self.imu_vxy_noise), vy + np.random.normal(0, self.imu_vxy_noise), omega + np.random.normal(0, self.imu_omega_noise), dt) + np.random.normal(0, np.array([self.xy_noise, self.xy_noise, self.theta_noise]), (3,))
+                odom[i,:] = self.deterministic_imu(vx + np.random.normal(0, self.imu_vx_noise), vy + np.random.normal(0, self.imu_vy_noise), omega + np.random.normal(0, self.imu_omega_noise), dt) + np.random.normal(0, np.array([self.xy_noise, self.xy_noise, self.theta_noise]), (3,))
 
         self.particles=self.motion_model.evaluate(self.particles, odom)
 

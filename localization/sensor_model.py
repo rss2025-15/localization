@@ -75,6 +75,8 @@ class SensorModel:
             self.map_callback,
             1)
 
+        self.IN_SIM = 0
+
     def p_short(self, z, d):
         if z<=d and d!=0:
             return 2/d*(1-z/d)
@@ -155,7 +157,13 @@ class SensorModel:
         if not self.map_set:
             return
         # downsample
-        # observation=observation.reshape(-1, self.num_beams_per_particle).mean(axis=1)
+        # print(f'observation shape: {observation.shape}')
+        # print(f'beams per particle: {self.num_beams_per_particle}')
+        
+        # observation=observation[:(len(observation)//self.num_beams_per_particle)*self.num_beams_per_particle].reshape(self.num_beams_per_particle, -1).mean(axis=1)
+        if self.IN_SIM == 0:
+            observation=observation[40:1040].reshape(-1, 10).mean(axis=1)
+        # print(f'observation shape: {observation.shape}')
         ####################################
         # Evaluate the sensor model here!
         #
@@ -175,6 +183,7 @@ class SensorModel:
         n_particles, _ = scans.shape
         probabilities = np.empty((n_particles,))
         for i in range(n_particles):
+            # print(f'scan shape: {scans[i,:].shape}')
             probabilities[i] = np.prod(self.sensor_model_table[observation, scans[i, :]])
         return probabilities
 

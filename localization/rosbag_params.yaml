@@ -1,0 +1,49 @@
+particle_filter:
+  ros__parameters:
+    num_particles: 500
+
+    init_xy_noise: 0.2
+    init_theta_noise: 0.2
+
+    angle_step: 11
+
+    # The number of lidar beams emitted from
+    # each particle. This doesn't need to be
+    # equal to the actual number (>1000)
+    # so long as you downsample properly
+    num_beams_per_particle: 100
+
+    # The field of view centered around theta=0
+    scan_field_of_view: 4.71 # radians
+
+    # Discretize the theta space for faster ray tracing
+    scan_theta_discretization: 500.0
+
+    # The names of topics to listen and publish to
+    map_topic: "/map"
+    # scan_topic: "/scan_fake" # for testing the motion model alone
+    scan_topic: "/scan"
+    odom_topic: "/vesc/odom"
+    drive_topic: "/drive"
+
+    # The frame you should publish your transform to
+    particle_filter_frame: "/base_link_rosbag_pf"
+
+    # Deterministic flag; set to true to remove all added noise
+    deterministic: false
+
+    lidar_scale_to_map_scale: 1.0
+
+    car_length: 0.5
+
+    use_imu: true
+    # imu noise params
+    imu_vx_noise: 10.0
+    imu_vy_noise: 2.0
+    imu_omega_noise: 0.5
+    # drive command noise params
+    drive_vel_noise: 0.5
+    drive_steer_noise: 0.01
+    # resulting pose noise params
+    xy_noise: 0.1
+    theta_noise: 0.1
