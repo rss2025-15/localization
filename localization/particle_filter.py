@@ -7,7 +7,7 @@ from sensor_msgs.msg import LaserScan
 from ackermann_msgs.msg import AckermannDriveStamped
 from tf_transformations import quaternion_matrix, quaternion_from_euler, euler_from_quaternion
 from rclpy.node import Node
-from tf2_ros import TransformBroadcaster
+from tf2_ros import TransformBroadcaster, TransformListener, Buffer
 from geometry_msgs.msg import TransformStamped
 
 import rclpy
@@ -41,10 +41,12 @@ class ParticleFilter(Node):
         self.declare_parameter('odom_topic', "/odom")
         self.declare_parameter('scan_topic', "/scan")
         self.declare_parameter('drive_topic', "/drive")
+        self.declare_parameter('in_sim', 1)
 
         scan_topic = self.get_parameter("scan_topic").get_parameter_value().string_value
         odom_topic = self.get_parameter("odom_topic").get_parameter_value().string_value
         drive_topic = self.get_parameter("drive_topic").get_parameter_value().string_value
+        self.IN_SIM = self.get_parameter("in_sim").get_parameter_value().integer_value
 
         self.laser_sub = self.create_subscription(LaserScan, scan_topic,
                                                   self.laser_callback,
@@ -124,7 +126,7 @@ class ParticleFilter(Node):
         self.prev_time = self.get_clock().now().nanoseconds*1e-9
 
         # "latest" ground truth, for sim
-        self.ground_truth_pose = np.empty(3)
+        # self.ground_truth_pose = np.empty(3)
 
         # Implement the MCL algorithm
         # using the sensor model and the motion model
@@ -138,6 +140,8 @@ class ParticleFilter(Node):
 
         # map->base_link tf broadcaster
         self.tf_broadcaster = TransformBroadcaster(self)
+        self.buffer = Buffer()
+        self.tf_listener = TransformListener(self.buffer, self)
         
     def create_odom_msg(self, pose):
         t= Odometry()
@@ -176,7 +180,7 @@ class ParticleFilter(Node):
 
             msg.poses.append(particle_pose)
         self.particles_pub.publish(msg)
-    def publish_robot_pose(self, truthing=True):
+    def publish_robot_pose(self):
         avg_theta = np.arctan2(np.mean(np.sin(self.motion_model.updated_particles_pose[:,2])), np.mean(np.cos(self.motion_model.updated_particles_pose[:, 2])))%(2*np.pi)
         odom_array = np.array([np.mean(self.motion_model.updated_particles_pose[:,0]), np.mean(self.motion_model.updated_particles_pose[:,1]), avg_theta])
         odom_msg = self.create_odom_msg(odom_array)
@@ -189,8 +193,11 @@ class ParticleFilter(Node):
         self.estimated_robot_pub.publish(est_robot_msg)
 
         # ground truthing
-        if truthing:
-            error = self.ground_truth_pose - odom_array
+        if self.IN_SIM and self.initialized:
+            truth = self.buffer.lookup_transform('base_link', 'map', rclpy.time.Time(), rclpy.duration.Duration(seconds = 2))
+            truth_orientation = euler_from_quaternion([truth.transform.rotation.x, truth.transform.rotation.y, truth.transform.rotation.z, truth.transform.rotation.w])[-1]
+            truth_pose = np.array([truth.transform.translation.x, truth.transform.translation.y, truth_orientation])
+            error = truth_pose - odom_array
             error[2] = min(abs(error[2]), abs(2*np.pi - abs(error[2]))) # angle error is absolute valued
             self.get_logger().info(f"error {error}")
         
@@ -209,63 +216,71 @@ class ParticleFilter(Node):
 
         self.tf_broadcaster.sendTransform(t)
         
+        
 
-    # def stratified_resample(self, weights):
-    #     N = len(weights)
-    #     # make N subdivisions, chose a random position within each one
-    #     positions = (np.random.uniform(0, 1, N) + range(N)) / N
-    #     self.get_logger().info(f"{positions}")
-
-    #     indexes = np.zeros(N, 'i')
-    #     cumulative_sum = np.cumsum(weights)
-    #     i, j = 0, 0
-    #     while i < N:
-    #         if positions[i] < cumulative_sum[j]:
-    #             indexes[i] = j
-    #             i += 1
-    #             self.get_logger().info(f"{j}")
-    #         else:
-    #             j += 1
-    #     # self.get_logger().info(f"{indexes}")
-    #     return indexes
-    # def multinomal_resample(self, weights):
-    #     N = len(weights)
-    #     avg = np.mean(weights)
-    #     indexes = np.zeros(N, 'i')
-
-    #     # take int(N*w) copies of each weight, which ensures particles with the
-    #     # same weight are drawn uniformly
-    #     num_copies = (np.floor(N*np.asarray(weights))).astype(int)
-    #     k = 0
-    #     for i in range(N):
-    #         for _ in range(num_copies[i]): # make n copies
-    #             indexes[k] = i
-    #             k += 1
-
-    #     # use multinormal resample on the residual to fill up the rest. This
-    #     # maximizes the variance of the samples
-    #     residual = weights - num_copies     # get fractional part
-    #     residual /= sum(residual)           # normalize
-    #     cumulative_sum = np.cumsum(residual) 
-    #     indexes[k:N] = np.searchsorted(cumulative_sum, np.random.uniform(0, 1, N-k)/avg)
-
-    #     return indexes 
-
-    def gpt_resample(self, probabilities):
-        # I give up
-         # Normalize the probabilities to ensure they sum to 1
+    def multinomial_resample(self, probabilities):
+        # sample each particle proportional to its weight
+        # high weight = more likely
+        # cluster collapses, but no diversity
         norm_probabilities = probabilities / np.sum(probabilities)
-        
-        # Create a cumulative distribution function (CDF)
         cdf = np.cumsum(norm_probabilities)
-        
-        # Generate random numbers to stratify resampling
         random_numbers = np.random.rand(self.num_particles)
-        
-        # Use the CDF to determine which intervals the random numbers fall into
         resampled_indices = np.searchsorted(cdf, random_numbers)
         
         return resampled_indices
+    
+    def stratified_resample(self, probabilities):
+        norm_probabilities = probabilities / np.sum(probabilities)
+        positions = (np.random.random(self.num_particles) + range(self.num_particles)) / self.num_particles
+
+        indexes = np.zeros(self.num_particles, 'i')
+        cumulative_sum = np.cumsum(norm_probabilities)
+        i, j = 0, 0
+        while i < self.num_particles:
+            if positions[i] < cumulative_sum[j]:
+                indexes[i] = j
+                i += 1
+            else:
+                j += 1
+        return indexes
+    
+    def residual_resample(self, probabilities):
+        norm_probabilities = probabilities / np.sum(probabilities)
+        indexes = np.zeros(self.num_particles, 'i')
+
+        # take int(N*w) copies of each weight
+        num_copies = (self.num_particles*np.asarray(norm_probabilities)).astype(int)
+        k = 0
+        for i in range(self.num_particles):
+            for _ in range(num_copies[i]): # make n copies
+                indexes[k] = i
+                k += 1
+
+        # use multinormial resample on the residual to fill up the rest.
+        residual = norm_probabilities - num_copies     # get fractional part
+        residual /= sum(residual)     # normalize
+        cumulative_sum = np.cumsum(residual)
+        cumulative_sum[-1] = 1. # ensures sum is exactly one
+        indexes[k:self.num_particles] = np.searchsorted(cumulative_sum, np.random.random(self.num_particles-k))
+
+        return indexes
+    
+    def systematic_resample(self, probabilities):
+        # make N subdivisions, choose positions 
+        # with a consistent random offset
+        norm_probabilities = probabilities / np.sum(probabilities)
+        positions = (np.arange(self.num_particles) + np.random.random()) / self.num_particles
+
+        indexes = np.zeros(self.num_particles, 'i')
+        cumulative_sum = np.cumsum(norm_probabilities)
+        i, j = 0, 0
+        while i < self.num_particles:
+            if positions[i] < cumulative_sum[j]:
+                indexes[i] = j
+                i += 1
+            else:
+                j += 1
+        return indexes
     def laser_callback(self, msg):
         # evaluate sensor model here
         # downsampling in the sensor model for now
@@ -275,7 +290,7 @@ class ParticleFilter(Node):
 
             # resample particles
             # NOT WORKING PLEASE HELP AHHHHHHHHHHHHHHH
-            resampled_indices = self.gpt_resample(self.particle_probabilities)
+            resampled_indices = self.systematic_resample(self.particle_probabilities)
             self.particles[:] = self.particles[resampled_indices]
 
             # update average particle pose (in theory the robot pose)
@@ -296,6 +311,7 @@ class ParticleFilter(Node):
         self.get_logger().info(f"{self.particles}")
         self.odom_pub.publish(self.create_odom_msg(self.robot_pose))
         self.initialized = True
+        self.publish_particles()
 
     def deterministic_imu(self, vx, vy, omega, dt):
         return np.array([vx, vy, omega])*dt
@@ -318,9 +334,14 @@ class ParticleFilter(Node):
         dt = self.get_clock().now().nanoseconds*1e-9 - self.prev_time
         self.prev_time = self.get_clock().now().nanoseconds*1e-9
 
-        vx = -msg.twist.twist.linear.x
-        vy = -msg.twist.twist.linear.y
-        omega = -msg.twist.twist.angular.z
+        if not self.IN_SIM:
+            vx = -msg.twist.twist.linear.x
+            vy = -msg.twist.twist.linear.y
+            omega = -msg.twist.twist.angular.z
+        else:
+            vx = msg.twist.twist.linear.x
+            vy = msg.twist.twist.linear.y
+            omega = msg.twist.twist.angular.z
 
         # update motion model
         odom = np.ndarray((self.num_particles,3))
@@ -336,9 +357,10 @@ class ParticleFilter(Node):
         # other thoughts on averaging - only take particles with probability higher than threshold??
         # self.get_logger().info(f"{self.particles}")
 
-        # update latest ground truth pose
-        theta = euler_from_quaternion([msg.pose.pose.orientation.x, msg.pose.pose.orientation.y, msg.pose.pose.orientation.z, msg.pose.pose.orientation.w])[-1]
-        self.ground_truth_pose = np.array([msg.pose.pose.position.x, msg.pose.pose.position.y, theta])
+        #### ignore ts
+        # # update latest ground truth pose
+        # theta = euler_from_quaternion([msg.pose.pose.orientation.x, msg.pose.pose.orientation.y, msg.pose.pose.orientation.z, msg.pose.pose.orientation.w])[-1]
+        # self.ground_truth_pose = np.array([msg.pose.pose.position.x, msg.pose.pose.position.y, theta])
 
         self.publish_robot_pose()
         self.publish_particles()
