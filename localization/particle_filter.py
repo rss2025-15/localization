@@ -100,6 +100,8 @@ class ParticleFilter(Node):
 
         self.declare_parameter('use_imu', True)
         self.use_imu = self.get_parameter('use_imu').get_parameter_value().bool_value
+        self.declare_parameter('uniform_noise', False)
+        self.uniform_noise = self.get_parameter('uniform_noise').get_parameter_value().bool_value
         # imu noise params
         self.declare_parameter('imu_vx_noise', 0.0)
         self.imu_vx_noise = self.get_parameter('imu_vx_noise').get_parameter_value().double_value
@@ -347,8 +349,10 @@ class ParticleFilter(Node):
         theta= euler_from_quaternion([msg.pose.pose.orientation.x, msg.pose.pose.orientation.y, msg.pose.pose.orientation.z, msg.pose.pose.orientation.w])[-1]
         
         self.robot_pose = np.array([msg.pose.pose.position.x, msg.pose.pose.position.y, theta])
-        self.init_randomness = np.random.normal(0, np.array([self.init_xy_noise, self.init_xy_noise, self.init_theta_noise]), (self.num_particles, 3))
-
+        if not self.uniform_noise:
+            self.init_randomness = np.random.normal(0, np.array([self.init_xy_noise, self.init_xy_noise, self.init_theta_noise]), (self.num_particles, 3))
+        else:
+            self.init_randomness = np.random.uniform(-np.array([self.init_xy_noise, self.init_xy_noise, self.init_theta_noise])/2, np.array([self.init_xy_noise, self.init_xy_noise, self.init_theta_noise])/2, (self.num_particles, 3))
         self.particles = self.robot_pose + self.init_randomness
 
         self.get_logger().info(f"{self.particles}")
@@ -392,8 +396,10 @@ class ParticleFilter(Node):
             if self.deterministic:
                 odom[i,:] = self.deterministic_imu(vx, vy, omega, dt)
             else:
-                odom[i,:] = self.deterministic_imu(vx + np.random.normal(0, self.imu_vx_noise), vy + np.random.normal(0, self.imu_vy_noise), omega + np.random.normal(0, self.imu_omega_noise), dt) + np.random.normal(0, np.array([self.x_noise, self.y_noise, self.theta_noise]), (3,))
-
+                if not self.uniform_noise:
+                    odom[i,:] = self.deterministic_imu(vx + np.random.normal(0, self.imu_vx_noise), vy + np.random.normal(0, self.imu_vy_noise), omega + np.random.normal(0, self.imu_omega_noise), dt) + np.random.normal(0, np.array([self.x_noise, self.y_noise, self.theta_noise]), (3,))
+                else:
+                    odom[i,:] = self.deterministic_imu(vx + np.random.uniform(-self.imu_vx_noise/2, self.imu_vx_noise/2), vy + np.random.uniform(-self.imu_vy_noise/2, self.imu_vy_noise/2), omega + np.random.uniform(-self.imu_omega_noise/2, self.imu_omega_noise/2), dt) + np.random.uniform(-np.array([self.x_noise, self.y_noise, self.theta_noise])/2, np.array([self.x_noise, self.y_noise, self.theta_noise])/2, (3,))
         self.particles=self.motion_model.evaluate(self.particles, odom)
 
         # update average particle pose (in theory the robot pose)
@@ -430,7 +436,10 @@ class ParticleFilter(Node):
             if self.deterministic:
                 odom[i,:] = self.deterministic_drive(vel, steer, dt)
             else:
-                odom[i,:] = self.deterministic_drive(vel + np.random.normal(0, self.drive_vel_noise), steer + np.random.normal(0, self.drive_steer_noise), dt) + np.random.normal(0, np.array([self.x_noise, self.y_noise, self.theta_noise]), (3,))
+                if not self.uniform_noise:
+                    odom[i,:] = self.deterministic_drive(vel + np.random.normal(0, self.drive_vel_noise), steer + np.random.normal(0, self.drive_steer_noise), dt) + np.random.normal(0, np.array([self.x_noise, self.y_noise, self.theta_noise]), (3,))
+                else:
+                    odom[i,:] = self.deterministic_drive(vel + np.random.uniform(-self.drive_vel_noise/2, self.drive_vel_noise/2), steer + np.random.uniform(-self.drive_steer_noise/2, self.drive_steer_noise/2), dt) + np.random.uniform(-np.array([self.x_noise, self.y_noise, self.theta_noise])/2, np.array([self.x_noise, self.y_noise, self.theta_noise])/2, (3,))
         
         self.particles=self.motion_model.evaluate(self.particles, odom)
 

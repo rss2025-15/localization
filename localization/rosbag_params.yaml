@@ -37,6 +37,7 @@ particle_filter:
     car_length: 0.5
 
     use_imu: true
+    uniform_noise: false
     # imu noise params
     imu_vx_noise: 10.0
     imu_vy_noise: 2.0
