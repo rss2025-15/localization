@@ -10,6 +10,7 @@ from rclpy.node import Node
 from tf2_ros import TransformBroadcaster, TransformListener, Buffer
 from geometry_msgs.msg import TransformStamped, PointStamped
 from visualization_msgs.msg import Marker, MarkerArray
+from std_msgs.msg import Float32
 
 import rclpy
 import numpy as np
@@ -80,6 +81,8 @@ class ParticleFilter(Node):
         # self.checkpoints = []
         self.particles_pub = self.create_publisher(PoseArray, '/visualize_particles_rosbag' if self.is_rosbag else '/visualize_particles', 1)
         self.estimated_robot_pub = self.create_publisher(PoseStamped, '/estimated_robot', 1)
+
+        self.scan_alignment_prob_pub = self.create_publisher(Float32, '/scan_alignment_prob', 1)
         #  *Important Note #3:* You must publish your pose estimate to
         #     the following topic. In particular, you must use the
         #     pose field of the Odometry message. You do not need to
@@ -131,6 +134,7 @@ class ParticleFilter(Node):
         self.particle_probabilities = np.empty((self.num_particles,))
 
         self.initialized = False
+        self.ranges = []
         self.get_logger().info("=============+READY+=============")
 
         self.prev_time = self.get_clock().now().nanoseconds*1e-9
@@ -245,6 +249,13 @@ class ParticleFilter(Node):
             error = truth_pose - odom_array
             error[2] = min(abs(error[2]), abs(2*np.pi - abs(error[2]))) # angle error is absolute valued
             self.get_logger().info(f"error {error}")
+
+        if self.sensor_model.map_set:
+            pub_prob = Float32()
+            probs = self.sensor_model.evaluate(np.array([odom_array]), np.array(self.ranges))
+            # print(f'scan alignment probability: {probs}')
+            pub_prob.data = -math.log(probs[0])/self.sensor_model.num_beams_per_particle
+            self.scan_alignment_prob_pub.publish(pub_prob)
         
         t = TransformStamped()
         t.header.stamp = self.get_clock().now().to_msg()
@@ -329,6 +340,7 @@ class ParticleFilter(Node):
     def laser_callback(self, msg):
         # evaluate sensor model here
         # downsampling in the sensor model for now
+        self.ranges = msg.ranges
         if self.initialized and self.sensor_model.map_set:
             self.particle_probabilities = self.sensor_model.evaluate(self.particles, np.array(msg.ranges))
             # self.get_logger().info(f"{self.particle_probabilities}")
