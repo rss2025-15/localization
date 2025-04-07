@@ -8,7 +8,8 @@ from ackermann_msgs.msg import AckermannDriveStamped
 from tf_transformations import quaternion_matrix, quaternion_from_euler, euler_from_quaternion
 from rclpy.node import Node
 from tf2_ros import TransformBroadcaster, TransformListener, Buffer
-from geometry_msgs.msg import TransformStamped
+from geometry_msgs.msg import TransformStamped, PointStamped
+from visualization_msgs.msg import Marker, MarkerArray
 
 import rclpy
 import numpy as np
@@ -74,6 +75,9 @@ class ParticleFilter(Node):
         self.pose_sub = self.create_subscription(PoseWithCovarianceStamped, "/initialpose",
                                                  self.pose_callback,
                                                  1)
+        # self.point_sub = self.create_subscription(PointStamped, "/clicked_point", self.point_callback, 1)
+        # self.checkpoint_pub = self.create_publisher(MarkerArray, "/checkpoint", 1)
+        # self.checkpoints = []
         self.particles_pub = self.create_publisher(PoseArray, '/visualize_particles_rosbag' if self.is_rosbag else '/visualize_particles', 1)
         self.estimated_robot_pub = self.create_publisher(PoseStamped, '/estimated_robot', 1)
         #  *Important Note #3:* You must publish your pose estimate to
@@ -146,6 +150,41 @@ class ParticleFilter(Node):
         self.tf_broadcaster = TransformBroadcaster(self)
         self.buffer = Buffer()
         self.tf_listener = TransformListener(self.buffer, self)
+    
+    # def point_callback(self, msg):
+    #     self.checkpoints.append((msg.point.x, msg.point.y))
+    #     marker_arr = MarkerArray()
+    #     for i,x,y in enumerate(self.checkpoints):
+    #         marker = Marker()
+
+    #         marker.header.frame_id = "/map"
+    #         marker.header.stamp = self.get_clock().now().to_msg()
+
+    #         marker.id = 0
+
+    #         marker.type = Marker.SPHERE
+
+    #         marker.action = Marker.ADD
+
+    #         marker.pose.position.x = x
+    #         marker.pose.position.y = y
+    #         marker.pose.position.z = 0
+    #         marker.pose.orientation.x = 0.0
+    #         marker.pose.orientation.y = 0.0
+    #         marker.pose.orientation.z = 0.0
+    #         marker.pose.orientation.w = 1.0
+
+    #         marker.scale.x = 1.0
+    #         marker.scale.y = 1.0
+    #         marker.scale.z = 1.0
+
+    #         marker.color.r = 0.0
+    #         marker.color.g = 0.0
+    #         marker.color.b = 1.0
+    #         marker.color.a = 1.0
+
+    #         marker_arr.markers.append(marker)
+    #     self.checkpoint_pub.publish(marker_arr)
         
     def create_odom_msg(self, pose):
         t= Odometry()
@@ -198,7 +237,7 @@ class ParticleFilter(Node):
 
         # ground truthing
         if self.IN_SIM and self.initialized:
-            truth = self.buffer.lookup_transform('base_link', 'map', rclpy.time.Time(), rclpy.duration.Duration(seconds = 2))
+            truth = self.buffer.lookup_transform('map', 'base_link', rclpy.time.Time(), rclpy.duration.Duration(seconds = 2))
             truth_orientation = euler_from_quaternion([truth.transform.rotation.x, truth.transform.rotation.y, truth.transform.rotation.z, truth.transform.rotation.w])[-1]
             truth_pose = np.array([truth.transform.translation.x, truth.transform.translation.y, truth_orientation])
             error = truth_pose - odom_array

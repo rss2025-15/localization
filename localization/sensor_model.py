@@ -75,8 +75,6 @@ class SensorModel:
             self.map_callback,
             1)
 
-        self.IN_SIM = 0
-
     def p_short(self, z, d):
         if z<=d and d!=0:
             return 2/d*(1-z/d)

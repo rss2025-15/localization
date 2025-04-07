@@ -1,6 +1,6 @@
 particle_filter:
   ros__parameters:
-    num_particles: 100
+    num_particles: 500
     
     init_xy_noise: 0.2
     init_theta_noise: 0.2
@@ -39,9 +39,9 @@ particle_filter:
 
     use_imu: true
     # imu noise params
-    imu_vx_noise: 0.0
-    imu_vy_noise: 0.0
-    imu_omega_noise: 0.0
+    imu_vx_noise: 10.0
+    imu_vy_noise: 2.0
+    imu_omega_noise: 0.5
     # drive command noise params
     drive_vel_noise: 0.5
     drive_steer_noise: 0.01
