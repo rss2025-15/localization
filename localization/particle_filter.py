@@ -50,6 +50,8 @@ class ParticleFilter(Node):
         drive_topic = self.get_parameter("drive_topic").get_parameter_value().string_value
         self.IN_SIM = self.get_parameter("in_sim").get_parameter_value().integer_value
         self.is_rosbag = self.get_parameter("is_rosbag").get_parameter_value().integer_value
+        self.IN_SIM = self.get_parameter("in_sim").get_parameter_value().integer_value
+        self.is_rosbag = self.get_parameter("is_rosbag").get_parameter_value().integer_value
 
         self.laser_sub = self.create_subscription(LaserScan, scan_topic,
                                                   self.laser_callback,
@@ -79,7 +81,13 @@ class ParticleFilter(Node):
         # self.checkpoint_pub = self.create_publisher(MarkerArray, "/checkpoint", 1)
         # self.checkpoints = []
         self.particles_pub = self.create_publisher(PoseArray, '/visualize_particles_rosbag' if self.is_rosbag else '/visualize_particles', 1)
+        # self.point_sub = self.create_subscription(PointStamped, "/clicked_point", self.point_callback, 1)
+        # self.checkpoint_pub = self.create_publisher(MarkerArray, "/checkpoint", 1)
+        # self.checkpoints = []
+        self.particles_pub = self.create_publisher(PoseArray, '/visualize_particles_rosbag' if self.is_rosbag else '/visualize_particles', 1)
         self.estimated_robot_pub = self.create_publisher(PoseStamped, '/estimated_robot', 1)
+
+        self.scan_alignment_prob_pub = self.create_publisher(Float32, '/scan_alignment_prob', 1)
         #  *Important Note #3:* You must publish your pose estimate to
         #     the following topic. In particular, you must use the
         #     pose field of the Odometry message. You do not need to
@@ -100,7 +108,13 @@ class ParticleFilter(Node):
 
         self.declare_parameter('use_imu', True)
         self.use_imu = self.get_parameter('use_imu').get_parameter_value().bool_value
+        self.declare_parameter('uniform_noise', False)
+        self.uniform_noise = self.get_parameter('uniform_noise').get_parameter_value().bool_value
         # imu noise params
+        self.declare_parameter('imu_vx_noise', 0.0)
+        self.imu_vx_noise = self.get_parameter('imu_vx_noise').get_parameter_value().double_value
+        self.declare_parameter('imu_vy_noise', 0.0)
+        self.imu_vy_noise = self.get_parameter('imu_vy_noise').get_parameter_value().double_value
         self.declare_parameter('imu_vx_noise', 0.0)
         self.imu_vx_noise = self.get_parameter('imu_vx_noise').get_parameter_value().double_value
         self.declare_parameter('imu_vy_noise', 0.0)
@@ -117,6 +131,10 @@ class ParticleFilter(Node):
         self.x_noise = self.get_parameter('x_noise').get_parameter_value().double_value
         self.declare_parameter('y_noise', 0.0)
         self.y_noise = self.get_parameter('y_noise').get_parameter_value().double_value
+        self.declare_parameter('x_noise', 0.0)
+        self.x_noise = self.get_parameter('x_noise').get_parameter_value().double_value
+        self.declare_parameter('y_noise', 0.0)
+        self.y_noise = self.get_parameter('y_noise').get_parameter_value().double_value
         self.declare_parameter('theta_noise', 0.0)
         self.theta_noise = self.get_parameter('theta_noise').get_parameter_value().double_value        
 
@@ -129,11 +147,13 @@ class ParticleFilter(Node):
         self.particle_probabilities = np.empty((self.num_particles,))
 
         self.initialized = False
+        self.ranges = []
         self.get_logger().info("=============+READY+=============")
 
         self.prev_time = self.get_clock().now().nanoseconds*1e-9
 
         # "latest" ground truth, for sim
+        # self.ground_truth_pose = np.empty(3)
         # self.ground_truth_pose = np.empty(3)
 
         # Implement the MCL algorithm
@@ -224,6 +244,7 @@ class ParticleFilter(Node):
             msg.poses.append(particle_pose)
         self.particles_pub.publish(msg)
     def publish_robot_pose(self):
+    def publish_robot_pose(self):
         avg_theta = np.arctan2(np.mean(np.sin(self.motion_model.updated_particles_pose[:,2])), np.mean(np.cos(self.motion_model.updated_particles_pose[:, 2])))%(2*np.pi)
         odom_array = np.array([np.mean(self.motion_model.updated_particles_pose[:,0]), np.mean(self.motion_model.updated_particles_pose[:,1]), avg_theta])
         odom_msg = self.create_odom_msg(odom_array)
@@ -259,6 +280,12 @@ class ParticleFilter(Node):
 
         self.tf_broadcaster.sendTransform(t)
         
+        
+
+    def multinomial_resample(self, probabilities):
+        # sample each particle proportional to its weight
+        # high weight = more likely
+        # cluster collapses, but no diversity
         
 
     def multinomial_resample(self, probabilities):
@@ -324,15 +351,70 @@ class ParticleFilter(Node):
             else:
                 j += 1
         return indexes
+    
+    def stratified_resample(self, probabilities):
+        norm_probabilities = probabilities / np.sum(probabilities)
+        positions = (np.random.random(self.num_particles) + range(self.num_particles)) / self.num_particles
+
+        indexes = np.zeros(self.num_particles, 'i')
+        cumulative_sum = np.cumsum(norm_probabilities)
+        i, j = 0, 0
+        while i < self.num_particles:
+            if positions[i] < cumulative_sum[j]:
+                indexes[i] = j
+                i += 1
+            else:
+                j += 1
+        return indexes
+    
+    def residual_resample(self, probabilities):
+        norm_probabilities = probabilities / np.sum(probabilities)
+        indexes = np.zeros(self.num_particles, 'i')
+
+        # take int(N*w) copies of each weight
+        num_copies = (self.num_particles*np.asarray(norm_probabilities)).astype(int)
+        k = 0
+        for i in range(self.num_particles):
+            for _ in range(num_copies[i]): # make n copies
+                indexes[k] = i
+                k += 1
+
+        # use multinormial resample on the residual to fill up the rest.
+        residual = norm_probabilities - num_copies     # get fractional part
+        residual /= sum(residual)     # normalize
+        cumulative_sum = np.cumsum(residual)
+        cumulative_sum[-1] = 1. # ensures sum is exactly one
+        indexes[k:self.num_particles] = np.searchsorted(cumulative_sum, np.random.random(self.num_particles-k))
+
+        return indexes
+    
+    def systematic_resample(self, probabilities):
+        # make N subdivisions, choose positions 
+        # with a consistent random offset
+        norm_probabilities = probabilities / np.sum(probabilities)
+        positions = (np.arange(self.num_particles) + np.random.random()) / self.num_particles
+
+        indexes = np.zeros(self.num_particles, 'i')
+        cumulative_sum = np.cumsum(norm_probabilities)
+        i, j = 0, 0
+        while i < self.num_particles:
+            if positions[i] < cumulative_sum[j]:
+                indexes[i] = j
+                i += 1
+            else:
+                j += 1
+        return indexes
     def laser_callback(self, msg):
         # evaluate sensor model here
         # downsampling in the sensor model for now
+        self.ranges = msg.ranges
         if self.initialized and self.sensor_model.map_set:
             self.particle_probabilities = self.sensor_model.evaluate(self.particles, np.array(msg.ranges))
             # self.get_logger().info(f"{self.particle_probabilities}")
 
             # resample particles
             # NOT WORKING PLEASE HELP AHHHHHHHHHHHHHHH
+            resampled_indices = self.systematic_resample(self.particle_probabilities)
             resampled_indices = self.systematic_resample(self.particle_probabilities)
             self.particles[:] = self.particles[resampled_indices]
 
@@ -347,13 +429,16 @@ class ParticleFilter(Node):
         theta= euler_from_quaternion([msg.pose.pose.orientation.x, msg.pose.pose.orientation.y, msg.pose.pose.orientation.z, msg.pose.pose.orientation.w])[-1]
         
         self.robot_pose = np.array([msg.pose.pose.position.x, msg.pose.pose.position.y, theta])
-        self.init_randomness = np.random.normal(0, np.array([self.init_xy_noise, self.init_xy_noise, self.init_theta_noise]), (self.num_particles, 3))
-
+        if not self.uniform_noise:
+            self.init_randomness = np.random.normal(0, np.array([self.init_xy_noise, self.init_xy_noise, self.init_theta_noise]), (self.num_particles, 3))
+        else:
+            self.init_randomness = np.random.uniform(-np.array([self.init_xy_noise, self.init_xy_noise, self.init_theta_noise])/2, np.array([self.init_xy_noise, self.init_xy_noise, self.init_theta_noise])/2, (self.num_particles, 3))
         self.particles = self.robot_pose + self.init_randomness
 
         # self.get_logger().info(f"{self.particles}")
         self.odom_pub.publish(self.create_odom_msg(self.robot_pose))
         self.initialized = True
+        self.publish_particles()
         self.publish_particles()
 
     def deterministic_imu(self, vx, vy, omega, dt):
@@ -402,6 +487,10 @@ class ParticleFilter(Node):
         # other thoughts on averaging - only take particles with probability higher than threshold??
         # self.get_logger().info(f"{self.particles}")
 
+        #### ignore ts
+        # # update latest ground truth pose
+        # theta = euler_from_quaternion([msg.pose.pose.orientation.x, msg.pose.pose.orientation.y, msg.pose.pose.orientation.z, msg.pose.pose.orientation.w])[-1]
+        # self.ground_truth_pose = np.array([msg.pose.pose.position.x, msg.pose.pose.position.y, theta])
         #### ignore ts
         # # update latest ground truth pose
         # theta = euler_from_quaternion([msg.pose.pose.orientation.x, msg.pose.pose.orientation.y, msg.pose.pose.orientation.z, msg.pose.pose.orientation.w])[-1]
