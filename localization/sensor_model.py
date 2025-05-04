@@ -30,7 +30,7 @@ class SensorModel:
         self.scan_field_of_view = node.get_parameter('scan_field_of_view').get_parameter_value().double_value
         self.lidar_scale_to_map_scale = node.get_parameter(
             'lidar_scale_to_map_scale').get_parameter_value().double_value
-
+        self.IN_SIM = node.get_parameter("in_sim").get_parameter_value().integer_value
         ####################################
         # Adjust these parameters
         self.alpha_hit = 0.74
@@ -53,7 +53,7 @@ class SensorModel:
         node.get_logger().info("%s" % self.num_beams_per_particle)
         node.get_logger().info("%s" % self.scan_theta_discretization)
         node.get_logger().info("%s" % self.scan_field_of_view)
-
+        node.get_logger().info(f"{self.IN_SIM}")
         # Precompute the sensor model table
         self.sensor_model_table = np.empty((self.table_width, self.table_width))
         self.precompute_sensor_model()
@@ -74,6 +74,8 @@ class SensorModel:
             self.map_topic,
             self.map_callback,
             1)
+
+        self.IN_SIM = 0
 
     def p_short(self, z, d):
         if z<=d and d!=0:
@@ -155,7 +157,8 @@ class SensorModel:
         if not self.map_set:
             return
         # downsample
-        observation=observation[40:1040].reshape(-1, 10).mean(axis=1)
+        if self.IN_SIM == 0:
+            observation=observation[40:1040].reshape(-1, 10).mean(axis=1)
         ####################################
         # Evaluate the sensor model here!
         #
@@ -175,6 +178,7 @@ class SensorModel:
         n_particles, _ = scans.shape
         probabilities = np.empty((n_particles,))
         for i in range(n_particles):
+            # print(f'scan shape: {scans[i,:].shape}')
             probabilities[i] = np.prod(self.sensor_model_table[observation, scans[i, :]])
         return probabilities
 
